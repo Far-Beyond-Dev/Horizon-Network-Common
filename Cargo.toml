@@ -1,6 +1,6 @@
 [package]
 name = "Horizon-Network-Common"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Shared network types and protocols for Horizon ecosystem (Horizon, Atlas, Maestro)"
 authors = ["Far-Beyond-Dev"]
