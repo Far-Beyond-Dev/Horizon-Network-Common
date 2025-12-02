@@ -38,9 +38,30 @@ pub mod health;
 pub mod messages;
 
 // Re-export commonly used types
+
+// Spatial types
 pub use spatial::{WorldCoordinate, RegionCoordinate, RegionBounds};
-pub use server::{ServerId, ServerInfo, ServerStatus, ServerRegistration, ServerHeartbeat, RegistrationResponse, SpawnServerRequest, SpawnServerResponse};
+
+// Server types (full structured types)
+pub use server::{
+    ServerId, ServerInfo, ServerStatus, ServerRegistration, ServerHeartbeat, 
+    RegistrationResponse, SpawnServerRequest, SpawnServerResponse,
+};
+
+// API-compatible types (flat structures for REST APIs)
+pub use server::{
+    ApiServerRegistration, ApiRegistrationResponse, AdjacentServerInfo,
+    ApiServerHeartbeat, ApiHeartbeatResponse, ServerCommand,
+};
+
+// Player types  
 pub use player::{PlayerId, PlayerInfo, PlayerState, AuthenticationStatus, ConnectionState, MovementData, DisconnectReason};
+
+// Transfer types
 pub use transfer::{TransferToken, TransferRequest, TransferResult, TransferReason, TransferError, TransferNotification};
+
+// Health check types
 pub use health::{HealthStatus, HealthCheck, HealthCheckRequest, ComponentHealth, ClusterHealth};
+
+// Inter-service message types
 pub use messages::{HorizonMessage, AtlasMessage, AtlasToMaestroMessage, MaestroMessage, Envelope, Ack};

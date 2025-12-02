@@ -4,37 +4,48 @@
 //! different Horizon instances managed by Atlas.
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
 
 use crate::spatial::WorldCoordinate;
 use crate::server::ServerId;
 
 /// Unique identifier for a player.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct PlayerId(pub Uuid);
+/// Uses String for JSON API compatibility.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub struct PlayerId(pub String);
 
 impl PlayerId {
-    /// Creates a new random player ID.
+    /// Creates a new random player ID using UUID v4.
     pub fn new() -> Self {
-        Self(Uuid::new_v4())
+        Self(uuid::Uuid::new_v4().to_string())
     }
 
     /// Creates a player ID from a string.
-    pub fn from_str(s: &str) -> Result<Self, uuid::Error> {
-        Uuid::parse_str(s).map(Self)
+    pub fn from_string(s: impl Into<String>) -> Self {
+        Self(s.into())
     }
-}
 
-impl Default for PlayerId {
-    fn default() -> Self {
-        Self::new()
+    /// Gets the inner string value.
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
 impl std::fmt::Display for PlayerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl From<String> for PlayerId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<&str> for PlayerId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
     }
 }
 

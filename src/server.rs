@@ -4,36 +4,48 @@
 //! and report their status and availability.
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 
 use crate::spatial::{RegionBounds, RegionCoordinate, WorldCoordinate};
 
 /// Unique identifier for a Horizon server instance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ServerId(pub Uuid);
+/// Uses String for JSON API compatibility.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub struct ServerId(pub String);
 
 impl ServerId {
-    /// Creates a new random server ID.
+    /// Creates a new random server ID using UUID v4.
     pub fn new() -> Self {
-        Self(Uuid::new_v4())
+        Self(uuid::Uuid::new_v4().to_string())
     }
 
     /// Creates a server ID from a string.
-    pub fn from_str(s: &str) -> Result<Self, uuid::Error> {
-        Uuid::parse_str(s).map(Self)
+    pub fn from_string(s: impl Into<String>) -> Self {
+        Self(s.into())
     }
-}
 
-impl Default for ServerId {
-    fn default() -> Self {
-        Self::new()
+    /// Gets the inner string value.
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
 impl std::fmt::Display for ServerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl From<String> for ServerId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<&str> for ServerId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
     }
 }
 
@@ -216,6 +228,102 @@ pub struct SpawnServerResponse {
     pub address: Option<String>,
     /// Error message if failed
     pub error: Option<String>,
+}
+
+/// Simplified server registration for REST API.
+/// This is what Horizon sends to Atlas when registering.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiServerRegistration {
+    /// Server name
+    pub name: String,
+    /// Server address (host:port)
+    pub address: String,
+    /// Region X coordinate
+    pub region_coord: RegionCoordinate,
+    /// Center point of the region
+    pub center: WorldCoordinate,
+    /// Region bounds (half-extent)
+    pub bounds: f64,
+    /// Maximum capacity
+    pub capacity: u32,
+    /// Server version
+    #[serde(default)]
+    pub version: String,
+    /// Additional metadata
+    #[serde(default)]
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+impl ApiServerRegistration {
+    /// Create from RegionBounds
+    pub fn from_bounds(
+        name: String,
+        address: String,
+        region_coord: RegionCoordinate,
+        bounds: &RegionBounds,
+        capacity: u32,
+    ) -> Self {
+        Self {
+            name,
+            address,
+            region_coord,
+            center: bounds.center(),
+            bounds: bounds.half_extent(),
+            capacity,
+            version: String::new(),
+            metadata: HashMap::new(),
+        }
+    }
+}
+
+/// API response when a server registers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiRegistrationResponse {
+    pub success: bool,
+    pub server_id: String,
+    pub message: String,
+    pub heartbeat_interval_secs: u32,
+    #[serde(default)]
+    pub adjacent_servers: Vec<AdjacentServerInfo>,
+}
+
+/// Adjacent server info for the API.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdjacentServerInfo {
+    pub server_id: String,
+    pub address: String,
+    pub region_coord: RegionCoordinate,
+}
+
+/// API heartbeat request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiServerHeartbeat {
+    pub server_id: String,
+    pub current_connections: u32,
+    pub load: f32,
+    pub accepting_connections: bool,
+    #[serde(default)]
+    pub avg_tick_ms: f64,
+    #[serde(default)]
+    pub memory_bytes: u64,
+}
+
+/// API heartbeat response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiHeartbeatResponse {
+    pub success: bool,
+    pub message: String,
+    #[serde(default)]
+    pub commands: Vec<ServerCommand>,
+}
+
+/// Commands from Atlas to Horizon.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ServerCommand {
+    PrepareShutdown { deadline_secs: u32 },
+    ConfigUpdate { config: serde_json::Value },
+    HealthCheck,
 }
 
 #[cfg(test)]

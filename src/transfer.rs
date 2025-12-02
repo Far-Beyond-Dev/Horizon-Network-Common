@@ -4,10 +4,9 @@
 //! when they move across region boundaries.
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use chrono::{DateTime, Utc, Duration};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::player::{PlayerId, PlayerState};
+use crate::player::PlayerId;
 use crate::server::ServerId;
 use crate::spatial::WorldCoordinate;
 
@@ -18,76 +17,82 @@ use crate::spatial::WorldCoordinate;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferToken {
     /// Unique token identifier
-    pub token_id: Uuid,
+    pub token_id: String,
     /// Player being transferred
     pub player_id: PlayerId,
     /// Source server
     pub source_server: ServerId,
     /// Target server
     pub target_server: ServerId,
-    /// When this token was created
-    pub created_at: DateTime<Utc>,
-    /// When this token expires
-    pub expires_at: DateTime<Utc>,
+    /// Target server address
+    pub target_address: String,
+    /// When this token was created (ms since epoch)
+    pub created_at_ms: u64,
+    /// When this token expires (ms since epoch)
+    pub expires_at_ms: u64,
     /// Cryptographic signature (HMAC or similar)
     pub signature: String,
-    /// Serialized player state
-    pub player_state: String,
 }
+
+/// Token validity duration in seconds
+const DEFAULT_TOKEN_VALIDITY_SECS: u64 = 60;
 
 impl TransferToken {
     /// Creates a new transfer token.
-    ///
-    /// The token is valid for the specified duration.
     pub fn new(
         player_id: PlayerId,
         source_server: ServerId,
         target_server: ServerId,
-        player_state: PlayerState,
-        valid_duration_secs: i64,
+        target_address: String,
         secret_key: &[u8],
-    ) -> Result<Self, TransferError> {
-        let token_id = Uuid::new_v4();
-        let created_at = Utc::now();
-        let expires_at = created_at + Duration::seconds(valid_duration_secs);
-        
-        let player_state_json = serde_json::to_string(&player_state)
-            .map_err(|e| TransferError::SerializationError(e.to_string()))?;
-        
-        // Create signature from token data
-        let sign_data = format!(
-            "{}:{}:{}:{}:{}",
-            token_id, player_id, source_server, target_server, expires_at.timestamp()
-        );
-        let signature = Self::compute_signature(&sign_data, secret_key);
-        
-        Ok(Self {
+    ) -> Self {
+        Self::with_validity(player_id, source_server, target_server, target_address, DEFAULT_TOKEN_VALIDITY_SECS, secret_key)
+    }
+
+    /// Creates a new transfer token with custom validity duration.
+    pub fn with_validity(
+        player_id: PlayerId,
+        source_server: ServerId,
+        target_server: ServerId,
+        target_address: String,
+        valid_duration_secs: u64,
+        secret_key: &[u8],
+    ) -> Self {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let token_id = format!("txfr-{}-{}", now_ms, Self::rand_component());
+        let expires_at_ms = now_ms + (valid_duration_secs * 1000);
+
+        let mut token = Self {
             token_id,
             player_id,
             source_server,
             target_server,
-            created_at,
-            expires_at,
-            signature,
-            player_state: player_state_json,
-        })
+            target_address,
+            created_at_ms: now_ms,
+            expires_at_ms,
+            signature: String::new(),
+        };
+
+        token.signature = token.compute_signature(secret_key);
+        token
     }
 
     /// Verifies the token signature and expiration.
     pub fn verify(&self, secret_key: &[u8]) -> Result<(), TransferError> {
-        // Check expiration
-        if Utc::now() > self.expires_at {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        if now_ms > self.expires_at_ms {
             return Err(TransferError::TokenExpired);
         }
 
-        // Verify signature
-        let sign_data = format!(
-            "{}:{}:{}:{}:{}",
-            self.token_id, self.player_id, self.source_server, self.target_server, 
-            self.expires_at.timestamp()
-        );
-        let expected_signature = Self::compute_signature(&sign_data, secret_key);
-        
+        let expected_signature = self.compute_signature(secret_key);
         if self.signature != expected_signature {
             return Err(TransferError::InvalidSignature);
         }
@@ -95,21 +100,42 @@ impl TransferToken {
         Ok(())
     }
 
-    /// Extracts the player state from the token.
-    pub fn extract_player_state(&self) -> Result<PlayerState, TransferError> {
-        serde_json::from_str(&self.player_state)
-            .map_err(|e| TransferError::SerializationError(e.to_string()))
-    }
-
-    /// Simple signature computation (in production, use proper HMAC-SHA256).
-    fn compute_signature(data: &str, key: &[u8]) -> String {
+    /// Computes signature for this token.
+    fn compute_signature(&self, key: &[u8]) -> String {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
+        let data = format!(
+            "{}:{}:{}:{}:{}",
+            self.token_id, self.player_id, self.source_server, self.target_server, self.expires_at_ms
+        );
+
         let mut hasher = DefaultHasher::new();
         data.hash(&mut hasher);
         key.hash(&mut hasher);
         format!("{:016x}", hasher.finish())
+    }
+
+    /// Generates a random component for token IDs.
+    fn rand_component() -> u32 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        std::time::Instant::now().hash(&mut hasher);
+        (hasher.finish() % 1000000) as u32
+    }
+
+    /// Serializes the token to JSON.
+    pub fn to_json(&self) -> Result<String, TransferError> {
+        serde_json::to_string(self)
+            .map_err(|e| TransferError::SerializationError(e.to_string()))
+    }
+
+    /// Deserializes a token from JSON.
+    pub fn from_json(json: &str) -> Result<Self, TransferError> {
+        serde_json::from_str(json)
+            .map_err(|e| TransferError::SerializationError(e.to_string()))
     }
 }
 
@@ -237,17 +263,21 @@ pub struct TransferNotification {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::player::PlayerInfo;
 
     #[test]
     fn test_transfer_token_creation_and_verification() {
         let player_id = PlayerId::new();
         let source = ServerId::new();
         let target = ServerId::new();
-        let state = PlayerState::new(PlayerInfo::new(player_id, "TestPlayer".to_string()));
         let secret = b"test_secret_key";
 
-        let token = TransferToken::new(player_id, source, target, state, 300, secret).unwrap();
+        let token = TransferToken::new(
+            player_id.clone(), 
+            source, 
+            target, 
+            "127.0.0.1:8080".to_string(),
+            secret
+        );
         assert!(token.verify(secret).is_ok());
     }
 
@@ -256,9 +286,14 @@ mod tests {
         let player_id = PlayerId::new();
         let source = ServerId::new();
         let target = ServerId::new();
-        let state = PlayerState::new(PlayerInfo::new(player_id, "TestPlayer".to_string()));
 
-        let token = TransferToken::new(player_id, source, target, state, 300, b"key1").unwrap();
+        let token = TransferToken::new(
+            player_id, 
+            source, 
+            target, 
+            "127.0.0.1:8080".to_string(),
+            b"key1"
+        );
         assert!(matches!(
             token.verify(b"wrong_key"),
             Err(TransferError::InvalidSignature)
