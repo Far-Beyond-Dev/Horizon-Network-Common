@@ -1,0 +1,17 @@
+[package]
+name = "Horizon-Network-Common"
+version = "0.1.0"
+edition = "2021"
+description = "Shared network types and protocols for Horizon ecosystem (Horizon, Atlas, Maestro)"
+authors = ["Far-Beyond-Dev"]
+license = "MIT"
+repository = "https://github.com/Far-Beyond-Dev/Horizon-Network-Common"
+keywords = ["horizon", "game-server", "networking", "distributed"]
+categories = ["game-development", "network-programming"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.18", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2.0"
